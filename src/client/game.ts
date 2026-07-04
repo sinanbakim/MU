@@ -62,6 +62,8 @@ window.addEventListener('DOMContentLoaded', () => {
     if (ev.repeat) return;
     const midi = KEY_TO_MIDI[key];
     if (midi === undefined) return;
+    // Only respond to keys when MIDI synth mode is active
+    if (!visualizer.isMidiActive) return;
     ev.preventDefault();
     if (pressedKeys.has(key)) return;
     pressedKeys.add(key);

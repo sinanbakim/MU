@@ -89,6 +89,11 @@ export class AudioVisualizer {
   private globalSampleIndex: number = 0;
   private _lastZMode: string = 'flow';
   private mode: 'mic' | 'file' | 'midi' = 'mic';
+
+  // Public helper so UI/outer code can check whether MIDI synth mode is active
+  get isMidiActive(): boolean {
+    return this.mode === 'midi';
+  }
   private animationId: number | null = null;
   private mouseDown: boolean = false;
   private uiHidden: boolean = false;

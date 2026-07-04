@@ -85,6 +85,14 @@ export class AudioEngine {
     this.analyserR.fftSize = this.fftSize;
     this.splitter.connect(this.analyserL, 0);
     this.splitter.connect(this.analyserR, 1);
+    // Route analyser outputs to the destination so any source routed to the splitter
+    // will be audible AND still be available for visual analysis.
+    try {
+      this.analyserL.connect(this.audioContext.destination);
+      this.analyserR.connect(this.audioContext.destination);
+    } catch (e) {
+      // Some browsers may not allow connecting both; ignore silently
+    }
   }
 
   private _onRingMessage(
@@ -123,11 +131,19 @@ export class AudioEngine {
       );
 
     source.connect(this.streamNode);
-    if (connectToDestination) {
-      this.streamNode.connect(this.audioContext.destination);
-    }
+    // Always connect the source to the splitter (if present) so analysers see it.
     if (this.splitter) {
       source.connect(this.splitter);
+    }
+
+    // Only connect the stream node directly to the destination if we do not
+    // have analyser nodes that are already routing audio to the destination.
+    if (connectToDestination) {
+      if (!this.analyserL && !this.analyserR) {
+        this.streamNode.connect(this.audioContext.destination);
+      } else {
+        // Destination routing will occur via analyser nodes connected in _createAnalysers
+      }
     }
   }
 
