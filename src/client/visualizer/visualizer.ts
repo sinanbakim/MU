@@ -90,9 +90,14 @@ export class AudioVisualizer {
   private _lastZMode: string = 'flow';
   private mode: 'mic' | 'file' | 'midi' = 'mic';
 
-  // Public helper so UI/outer code can check whether MIDI synth mode is active
+  // Keyboard synth overlay — independent of the current transport mode.
+  // When true, keyboard keys trigger oscillator voices on top of whatever
+  // audio source is currently running (file, mic or idle).
+  private midiSynthEnabled = false;
+
+  // Public getter so game.ts keydown handler can gate key events.
   get isMidiActive(): boolean {
-    return this.mode === 'midi';
+    return this.midiSynthEnabled;
   }
   private animationId: number | null = null;
   private mouseDown: boolean = false;
@@ -334,13 +339,18 @@ export class AudioVisualizer {
     const midiBtn = document.getElementById('midiBtn');
     if (midiBtn instanceof HTMLButtonElement) {
       midiBtn.addEventListener('click', () => {
-        if (this.mode !== 'midi') {
-          this.mode = 'midi';
-          void this._start().then(() => midiBtn.classList.add('active'));
+        this.midiSynthEnabled = !this.midiSynthEnabled;
+        if (this.midiSynthEnabled) {
+          midiBtn.classList.add('active');
+          this.updateStatus('MIDI Synth aktiv — Tasten: A W S E D F T G Y H X J K', true);
         } else {
-          this.mode = 'mic';
-          this._stop();
           midiBtn.classList.remove('active');
+          // Release all held voices
+          for (const [note] of this.keyboardVoices) {
+            this.stopKeyNote(note);
+          }
+          const label = this.mode === 'file' ? 'Datei läuft...' : 'Bereit';
+          this.updateStatus(label, this.mode === 'file');
         }
       });
     }
@@ -394,7 +404,8 @@ export class AudioVisualizer {
             this.audio.togglePlayback();
           }
           break;
-        case 'm':
+        case 'i':
+          // Insert marker at current playback position (file mode only)
           if (this.mode === 'file' && this.audio.audioElement) {
             const time = this.audio.player.currentTime;
             const label = prompt(
@@ -446,7 +457,8 @@ export class AudioVisualizer {
             }
           }
           break;
-        case 'h': {
+        case 'm': {
+          // M = Menu — toggle GUI / HW controls visibility
           this.uiHidden = !this.uiHidden;
           const display = this.uiHidden ? 'none' : '';
           if (this.gui) this.gui.domElement.style.display = display;
@@ -722,11 +734,7 @@ export class AudioVisualizer {
   }
 
   private async _start(): Promise<void> {
-    if (
-      !this.audio.devicesLoaded &&
-      this.mode !== 'file' &&
-      this.mode !== 'midi'
-    ) {
+    if (!this.audio.devicesLoaded && this.mode !== 'file') {
       await this._populateDevices();
     }
 
@@ -735,15 +743,11 @@ export class AudioVisualizer {
       this.mode = 'file';
       await this.audio.startFile(fileInput.files[0]);
       this.audio.play();
-      // Resume AudioContext — browsers (especially in iframes) start it suspended
       if (this.audio.audioContext && this.audio.audioContext.state === 'suspended') {
         await this.audio.audioContext.resume();
       }
       this.markerSystem.resetCueTracking(0);
       this._rebuildTimelineOverlays();
-    } else if (this.mode === 'midi') {
-      const ctx = await this.audio.startMidiContext();
-      this.midi.start(ctx.audioContext, ctx.splitter, ctx.streamNode);
     } else {
       this.mode = 'mic';
       const deviceSelect = document.getElementById('audioDevice');
@@ -771,7 +775,6 @@ export class AudioVisualizer {
     const labels: Record<string, string> = {
       mic: 'Läuft...',
       file: 'Datei läuft...',
-      midi: 'MIDI Synth aktiv (polyphon)',
     };
     this.updateStatus(labels[this.mode] ?? 'Läuft...', true);
     this.render.resetRingbuffer();
@@ -783,6 +786,10 @@ export class AudioVisualizer {
     if (this.animationId !== null) {
       cancelAnimationFrame(this.animationId);
       this.animationId = null;
+    }
+    // Release all keyboard synth voices
+    for (const [note] of this.keyboardVoices) {
+      this.stopKeyNote(note);
     }
     this.midi.stop();
     this.audio.stop();
@@ -816,22 +823,12 @@ export class AudioVisualizer {
 
   async playKeyNote(midiNote: number): Promise<void> {
     const freq = 440 * Math.pow(2, (midiNote - 69) / 12);
-    // Ensure AudioContext exists and is resumed
-    if (!this.audio.audioContext) {
-      // Initialize the shared AudioContext via AudioEngine helper
-      try {
-        await this.audio.startMidiContext();
-      } catch (e) {
-        // Fallback: create a basic AudioContext if startMidiContext fails
-        this.audio.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-        await this.audio.resumeContext();
-      }
-    } else if (this.audio.audioContext.state === 'suspended') {
-      await this.audio.audioContext.resume();
-    }
 
-    const ctx = this.audio.audioContext!;
-    // Prevent duplicate note
+    // Get (or lazily create) the AudioContext + analysers without stopping
+    // any currently running source (file player stays alive).
+    const ctx = await this.audio.ensureSynthContext();
+
+    // Prevent duplicate note-on for the same key
     if (this.keyboardVoices.has(midiNote)) return;
 
     const osc = ctx.createOscillator();
@@ -840,22 +837,27 @@ export class AudioVisualizer {
     osc.type = 'sine';
     osc.frequency.value = freq;
     osc.connect(gain);
-    gain.connect(ctx.destination);
-    try {
-      osc.start();
-    } catch (e) {
-      // ignore if already started
+
+    // Route through the analysers so the signal drives the Lissajous visuals.
+    // The analysers are already connected to ctx.destination in _createAnalysers(),
+    // so this also produces audible output.
+    if (this.audio.analyserL && this.audio.analyserR) {
+      gain.connect(this.audio.analyserL);
+      gain.connect(this.audio.analyserR);
+    } else {
+      // Fallback: direct to destination if analysers somehow unavailable
+      gain.connect(ctx.destination);
     }
+
+    osc.start();
     this.keyboardVoices.set(midiNote, { osc, gain });
 
-    // Visual effect: modulate rotation slightly by note
-    try {
-      if (this.render && this.render.mesh) {
-        const base = this.settings.rotation || 0.785398;
-        const rot = base + ((midiNote - 60) / 12) * 0.6; // small shift
-        this.render.mesh.rotation.z = rot;
-      }
-    } catch (e) {}
+    // Start render loop if not already running (e.g. no file loaded yet)
+    if (this.animationId === null) {
+      this.render.resetRingbuffer();
+      this.globalSampleIndex = 0;
+      this._draw();
+    }
   }
 
   stopKeyNote(midiNote: number): void {
@@ -865,19 +867,12 @@ export class AudioVisualizer {
       const ctx = this.audio.audioContext;
       if (ctx) v.gain.gain.setTargetAtTime(0.0, ctx.currentTime, 0.02);
       setTimeout(() => {
-        try { v.osc.stop(); } catch (e) {}
-        try { v.osc.disconnect(); } catch (e) {}
-        try { v.gain.disconnect(); } catch (e) {}
+        try { v.osc.stop(); } catch (_) {}
+        try { v.osc.disconnect(); } catch (_) {}
+        try { v.gain.disconnect(); } catch (_) {}
       }, 120);
-    } catch (e) {}
+    } catch (_) {}
     this.keyboardVoices.delete(midiNote);
-
-    // Restore rotation to default
-    try {
-      if (this.render && this.render.mesh) {
-        this.render.mesh.rotation.z = this.settings.rotation || 0.785398;
-      }
-    } catch (e) {}
   }
 
   private _draw(): void {

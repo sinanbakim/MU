@@ -81,6 +81,8 @@ window.addEventListener('DOMContentLoaded', () => {
     if (midi === undefined) return;
     if (!pressedKeys.has(key)) return;
     pressedKeys.delete(key);
-    visualizer.stopKeyNote(midi);
+    if (visualizer.isMidiActive) {
+      visualizer.stopKeyNote(midi);
+    }
   });
 });

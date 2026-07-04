@@ -85,14 +85,33 @@ export class AudioEngine {
     this.analyserR.fftSize = this.fftSize;
     this.splitter.connect(this.analyserL, 0);
     this.splitter.connect(this.analyserR, 1);
-    // Route analyser outputs to the destination so any source routed to the splitter
-    // will be audible AND still be available for visual analysis.
+    // Route analyser outputs to destination so any source through the splitter
+    // is both audible AND available for visual analysis.
     try {
       this.analyserL.connect(this.audioContext.destination);
       this.analyserR.connect(this.audioContext.destination);
     } catch (e) {
-      // Some browsers may not allow connecting both; ignore silently
+      // ignore
     }
+  }
+
+  /**
+   * Ensure an AudioContext + analysers exist WITHOUT stopping any current source.
+   * Used by the keyboard synth overlay so it can share the same context as a
+   * running file player.
+   */
+  async ensureSynthContext(): Promise<AudioContext> {
+    if (!this.audioContext) {
+      this.audioContext = new AudioContext();
+      this._createAnalysers();
+    }
+    if (this.audioContext.state === 'suspended') {
+      await this.audioContext.resume();
+    }
+    if (!this.analyserL || !this.analyserR) {
+      this._createAnalysers();
+    }
+    return this.audioContext;
   }
 
   private _onRingMessage(
