@@ -6,7 +6,7 @@
     "entrypoints": {
       "default": {
         "inline": true,
-        "entry": "splash.html"
+        "entry": "game.html"
       },
       "game": {
         "entry": "game.html"
@@ -44,5 +44,8 @@
   "scripts": {
     "build": "vite build",
     "dev": "vite build --watch"
+  },
+  "dev": {
+    "subreddit": "mucaching_dev"
   }
 }

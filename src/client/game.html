@@ -1,35 +1,31 @@
 <!doctype html>
-<html lang="en">
+<html lang="de">
   <head>
-    <link rel="stylesheet" type="text/css" href="game.css" />
     <meta charset="UTF-8" />
     <meta
       name="viewport"
       content="initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, width=device-width, height=device-height, user-scalable=0"
     />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="full-screen" content="yes" />
-    <meta name="x5-fullscreen" content="true" />
-    <meta name="360-fullscreen" content="true" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="stylesheet" type="text/css" href="game.css" />
+    <title>MuCaching</title>
   </head>
   <body>
-    <canvas id="bg"></canvas>
-    <div class="overlay">
-      <h1 class="title" id="title"></h1>
-      <p class="description">Edit <span class="code">src/client/splash.ts</span> to get started.</p>
-      <div class="counter-row">
-        <!-- Counter buttons removed. Value updated programmatically. -->
-        <span class="counter-value" id="counter-value">0</span>
-      </div>
-      <footer class="footer">
-        <div class="docs-link" tabindex="0" id="docs-link">Docs</div>
-        <span class="divider">|</span>
-        <div class="docs-link" tabindex="0" id="playtest-link">r/Devvit</div>
-        <span class="divider">|</span>
-        <div class="docs-link" tabindex="0" id="discord-link">Discord</div>
-      </footer>
+    <div id="hw-controls">
+      <select id="audioDevice">
+        <option value="">Gerät auswählen...</option>
+      </select>
+      <button id="startBtn">Start</button>
+      <button id="stopBtn" disabled>Stop</button>
+      <input type="file" id="audioFile" accept="audio/*" />
+      <button id="midiBtn">MIDI Synth</button>
     </div>
-    <script type="module" src="game.ts" defer></script>
+
+    <div id="canvas-container">
+      <canvas id="glCanvas"></canvas>
+    </div>
+
+    <div id="status">Status: Bereit</div>
+
+    <script type="module" src="game.ts"></script>
   </body>
 </html>

@@ -7,7 +7,7 @@
     "rootDir": "../src/client"
   },
   "include": ["../src/client/**/*"],
-  "exclude": [],
+  "exclude": ["../src/client/visualizer/_extracted/**"],
   "references": [
     {
       "path": "./tsconfig.shared.json"
