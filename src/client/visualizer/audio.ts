@@ -25,18 +25,18 @@ export class AudioEngine {
     currentTime: 0,
   };
 
-  fftDataL: Float32Array;
-  fftDataR: Float32Array;
+  fftDataL: Float32Array<ArrayBuffer>;
+  fftDataR: Float32Array<ArrayBuffer>;
 
   readonly ringBufferSize: number;
-  readonly ringL: Float32Array;
-  readonly ringR: Float32Array;
+  readonly ringL: Float32Array<ArrayBuffer>;
+  readonly ringR: Float32Array<ArrayBuffer>;
   ringWriteIndex: number = 0;
   ringReadIndex: number = 0;
   ringSamplesWritten: number = 0;
 
-  newSamplesL: Float32Array | null = null;
-  newSamplesR: Float32Array | null = null;
+  newSamplesL: Float32Array<ArrayBuffer> | null = null;
+  newSamplesR: Float32Array<ArrayBuffer> | null = null;
   newSampleCount: number = 0;
 
   streamNode: AudioWorkletNode | null = null;

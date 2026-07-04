@@ -447,16 +447,26 @@ export class AudioVisualizer {
     this.contextMenu?.setItems({
       'Add Keyframe...': () => {
         const paramInput = prompt('Parameter:\n' + AUTOMATABLE.join(', '));
-        if (!paramInput || !(AUTOMATABLE as readonly string[]).includes(paramInput)) return;
+        if (
+          !paramInput ||
+          !(AUTOMATABLE as readonly string[]).includes(paramInput)
+        )
+          return;
         const param = paramInput as AutomatableParam;
         const value = this.settings[param] as number;
-        const curve = (prompt('Curve (linear / smoothstep / step):', 'linear') ?? 'linear') as 'linear' | 'smoothstep' | 'step';
+        const curve = (prompt(
+          'Curve (linear / smoothstep / step):',
+          'linear'
+        ) ?? 'linear') as 'linear' | 'smoothstep' | 'step';
         this.automation.addKeyframe(param, elapsed, value, curve);
       },
       'Set Curve Type...': () => {
         const param = prompt('Parameter:\n' + AUTOMATABLE.join(', '));
         if (!param) return;
-        const curve = prompt('Curve (linear / smoothstep / step):', 'linear') as 'linear' | 'smoothstep' | 'step' | null;
+        const curve = prompt(
+          'Curve (linear / smoothstep / step):',
+          'linear'
+        ) as 'linear' | 'smoothstep' | 'step' | null;
         if (!curve) return;
         this.automation.setLastKeyframeCurve(param, curve);
       },
