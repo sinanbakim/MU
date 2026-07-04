@@ -49,4 +49,36 @@ window.addEventListener('DOMContentLoaded', () => {
 
   // Also resume on any click anywhere as a fallback
   document.addEventListener('click', resumeOnInteraction, { once: true });
+
+  // --- Keyboard-to-MIDI fallback (A W S E D F T G Y H X J K -> MIDI 60..72) ---
+  const KEY_TO_MIDI: Record<string, number> = {
+    a: 60, w: 61, s: 62, e: 63, d: 64, f: 65, t: 66, g: 67, y: 68, h: 69, x: 70, j: 71, k: 72,
+  };
+
+  const pressedKeys = new Set<string>();
+
+  window.addEventListener('keydown', async (ev: KeyboardEvent) => {
+    const key = ev.key.toLowerCase();
+    if (ev.repeat) return;
+    const midi = KEY_TO_MIDI[key];
+    if (midi === undefined) return;
+    ev.preventDefault();
+    if (pressedKeys.has(key)) return;
+    pressedKeys.add(key);
+
+    // Ensure audio is resumed on first keydown
+    await visualizer.resumeAudioContext();
+
+    // Trigger internal synth and visual deformation
+    void visualizer.playKeyNote(midi);
+  });
+
+  window.addEventListener('keyup', (ev: KeyboardEvent) => {
+    const key = ev.key.toLowerCase();
+    const midi = KEY_TO_MIDI[key];
+    if (midi === undefined) return;
+    if (!pressedKeys.has(key)) return;
+    pressedKeys.delete(key);
+    visualizer.stopKeyNote(midi);
+  });
 });

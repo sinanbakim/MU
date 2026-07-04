@@ -805,6 +805,76 @@ export class AudioVisualizer {
     await this.audio.resumeContext();
   }
 
+  // --- Keyboard synth fallback (for environments where WebMIDI is blocked) ---
+  private keyboardVoices: Map<number, { osc: OscillatorNode; gain: GainNode }> = new Map();
+  private _synthGain = 0.12;
+
+  async playKeyNote(midiNote: number): Promise<void> {
+    const freq = 440 * Math.pow(2, (midiNote - 69) / 12);
+    // Ensure AudioContext exists and is resumed
+    if (!this.audio.audioContext) {
+      // Initialize the shared AudioContext via AudioEngine helper
+      try {
+        await this.audio.startMidiContext();
+      } catch (e) {
+        // Fallback: create a basic AudioContext if startMidiContext fails
+        this.audio.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+        await this.audio.resumeContext();
+      }
+    } else if (this.audio.audioContext.state === 'suspended') {
+      await this.audio.audioContext.resume();
+    }
+
+    const ctx = this.audio.audioContext!;
+    // Prevent duplicate note
+    if (this.keyboardVoices.has(midiNote)) return;
+
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    gain.gain.value = this._synthGain;
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    try {
+      osc.start();
+    } catch (e) {
+      // ignore if already started
+    }
+    this.keyboardVoices.set(midiNote, { osc, gain });
+
+    // Visual effect: modulate rotation slightly by note
+    try {
+      if (this.render && this.render.mesh) {
+        const base = this.settings.rotation || 0.785398;
+        const rot = base + ((midiNote - 60) / 12) * 0.6; // small shift
+        this.render.mesh.rotation.z = rot;
+      }
+    } catch (e) {}
+  }
+
+  stopKeyNote(midiNote: number): void {
+    const v = this.keyboardVoices.get(midiNote);
+    if (!v) return;
+    try {
+      const ctx = this.audio.audioContext;
+      if (ctx) v.gain.gain.setTargetAtTime(0.0, ctx.currentTime, 0.02);
+      setTimeout(() => {
+        try { v.osc.stop(); } catch (e) {}
+        try { v.osc.disconnect(); } catch (e) {}
+        try { v.gain.disconnect(); } catch (e) {}
+      }, 120);
+    } catch (e) {}
+    this.keyboardVoices.delete(midiNote);
+
+    // Restore rotation to default
+    try {
+      if (this.render && this.render.mesh) {
+        this.render.mesh.rotation.z = this.settings.rotation || 0.785398;
+      }
+    } catch (e) {}
+  }
+
   private _draw(): void {
     this.animationId = requestAnimationFrame(() => this._draw());
 
