@@ -145,6 +145,12 @@ export class AudioEngine {
     return { left: outL, right: outR };
   }
 
+  async resumeContext(): Promise<void> {
+    if (this.audioContext && this.audioContext.state === 'suspended') {
+      await this.audioContext.resume();
+    }
+  }
+
   async startMic(deviceId: string): Promise<void> {
     this.stop();
     const stream = await navigator.mediaDevices.getUserMedia({
@@ -158,6 +164,7 @@ export class AudioEngine {
     });
     this.stream = stream;
     this.audioContext = new AudioContext();
+    await this.resumeContext();
     this._createAnalysers();
     this.microphone = this.audioContext.createMediaStreamSource(stream);
     await this._createStreamNode(this.microphone, false);
@@ -169,6 +176,7 @@ export class AudioEngine {
     this.audioElement = new Audio(this.audioURL);
     this.audioElement.loop = true;
     this.audioContext = new AudioContext();
+    await this.resumeContext();
     this._createAnalysers();
     this.mediaSource = this.audioContext.createMediaElementSource(
       this.audioElement
@@ -193,6 +201,7 @@ export class AudioEngine {
   }> {
     this.stop();
     this.audioContext = new AudioContext();
+    await this.resumeContext();
     this._createAnalysers();
     await this.audioContext.audioWorklet.addModule('stream-processor.js');
     this.streamNode = new AudioWorkletNode(

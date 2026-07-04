@@ -28,15 +28,22 @@ body {
 #hw-controls {
   position: fixed;
   top: 8px;
-  left: 48px;
+  left: 8px;
+  right: 8px;
   z-index: 200;
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   align-items: center;
   background: rgba(30, 30, 30, 0.85);
   padding: 6px 10px;
   border-radius: 6px;
   font-size: 13px;
+  max-width: fit-content;
+}
+
+#hw-controls select.mic-unavailable {
+  display: none;
 }
 
 #hw-controls select,
@@ -96,6 +103,6 @@ body {
 }
 
 .lil-gui {
-  top: 13px !important;
-  right: 136px !important;
+  top: 60px !important;
+  right: 8px !important;
 }

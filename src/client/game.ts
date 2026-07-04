@@ -36,5 +36,17 @@ window.addEventListener('message', (event: MessageEvent) => {
 });
 
 window.addEventListener('DOMContentLoaded', () => {
-  new AudioVisualizer(shaders);
+  const visualizer = new AudioVisualizer(shaders);
+
+  // iframes start AudioContext in "suspended" — resume on any user interaction
+  const resumeOnInteraction = (): void => {
+    void visualizer.resumeAudioContext();
+  };
+
+  for (const id of ['startBtn', 'midiBtn', 'glCanvas']) {
+    document.getElementById(id)?.addEventListener('pointerdown', resumeOnInteraction);
+  }
+
+  // Also resume on any click anywhere as a fallback
+  document.addEventListener('click', resumeOnInteraction, { once: true });
 });

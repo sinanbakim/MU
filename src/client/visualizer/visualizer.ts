@@ -58,6 +58,10 @@ type Settings = {
 export class AudioVisualizer {
   private readonly canvas: HTMLCanvasElement;
   private readonly audio: AudioEngine;
+
+  get audioContext(): AudioContext | null {
+    return this.audio.audioContext;
+  }
   private readonly midi: MidiSynth;
   readonly render: RenderPipeline;
   private readonly automation: AutomationEngine;
@@ -131,12 +135,23 @@ export class AudioVisualizer {
   }
 
   private async _populateDevices(): Promise<void> {
+    // In Reddit's iframe sandbox getUserMedia is blocked — detect early and hide mic UI
+    const micAvailable =
+      typeof navigator.mediaDevices !== 'undefined' &&
+      typeof navigator.mediaDevices.getUserMedia === 'function';
+
+    if (!micAvailable) {
+      this._disableMicControls();
+      this.updateStatus('Mikrofon nicht verfügbar (Reddit Sandbox) — Datei laden ↑');
+      return;
+    }
+
     let devices: MediaDeviceInfo[] = [];
     try {
       devices = await this.audio.loadDevices();
     } catch (_) {
-      this.updateStatus('Keine Audio-Eingabe verfügbar (Sandbox)');
       this._disableMicControls();
+      this.updateStatus('Mikrofon nicht verfügbar (Reddit Sandbox) — Datei laden ↑');
       return;
     }
 
@@ -162,7 +177,11 @@ export class AudioVisualizer {
   private _disableMicControls(): void {
     const sel = document.getElementById('audioDevice');
     const btn = document.getElementById('startBtn');
-    if (sel instanceof HTMLSelectElement) sel.disabled = true;
+    // Hide the mic dropdown entirely — it can't work in Reddit's sandbox
+    if (sel instanceof HTMLSelectElement) {
+      sel.style.display = 'none';
+    }
+    // Start button is still useful for file mode — only disable if no file selected
     if (btn instanceof HTMLButtonElement) btn.disabled = true;
   }
 
@@ -292,6 +311,9 @@ export class AudioVisualizer {
       fileInput.addEventListener('change', () => {
         if (fileInput.files && fileInput.files[0]) {
           this.mode = 'file';
+          // Re-enable start button in case mic was unavailable
+          const startBtn = document.getElementById('startBtn');
+          if (startBtn instanceof HTMLButtonElement) startBtn.disabled = false;
           void this._start();
         }
       });
@@ -708,6 +730,10 @@ export class AudioVisualizer {
       this.mode = 'file';
       await this.audio.startFile(fileInput.files[0]);
       this.audio.play();
+      // Resume AudioContext — browsers (especially in iframes) start it suspended
+      if (this.audio.audioContext && this.audio.audioContext.state === 'suspended') {
+        await this.audio.audioContext.resume();
+      }
       this.markerSystem.resetCueTracking(0);
       this._rebuildTimelineOverlays();
     } else if (this.mode === 'midi') {
@@ -723,6 +749,11 @@ export class AudioVisualizer {
         return;
       }
       await this.audio.startMic(deviceId);
+    }
+
+    // Resume AudioContext after any user-gesture triggered start
+    if (this.audio.audioContext && this.audio.audioContext.state === 'suspended') {
+      await this.audio.audioContext.resume();
     }
 
     const startBtn = document.getElementById('startBtn');
@@ -768,6 +799,10 @@ export class AudioVisualizer {
       status.textContent = 'Status: ' + text;
       status.classList.toggle('active', active);
     }
+  }
+
+  async resumeAudioContext(): Promise<void> {
+    await this.audio.resumeContext();
   }
 
   private _draw(): void {
