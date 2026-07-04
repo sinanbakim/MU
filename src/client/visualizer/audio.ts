@@ -10,6 +10,9 @@ export class AudioEngine {
   analyserL: AnalyserNode | null = null;
   analyserR: AnalyserNode | null = null;
   splitter: ChannelSplitterNode | null = null;
+  merger: ChannelMergerNode | null = null;
+  masterGain: GainNode | null = null;
+  compressor: DynamicsCompressorNode | null = null;
 
   microphone: MediaStreamAudioSourceNode | null = null;
   stream: MediaStream | null = null;
@@ -78,21 +81,35 @@ export class AudioEngine {
 
   private _createAnalysers(): void {
     if (!this.audioContext) return;
-    this.splitter = this.audioContext.createChannelSplitter(2);
-    this.analyserL = this.audioContext.createAnalyser();
-    this.analyserR = this.audioContext.createAnalyser();
+    const ctx = this.audioContext;
+
+    this.splitter = ctx.createChannelSplitter(2);
+    this.analyserL = ctx.createAnalyser();
+    this.analyserR = ctx.createAnalyser();
     this.analyserL.fftSize = this.fftSize;
     this.analyserR.fftSize = this.fftSize;
     this.splitter.connect(this.analyserL, 0);
     this.splitter.connect(this.analyserR, 1);
-    // Route analyser outputs to destination so any source through the splitter
-    // is both audible AND available for visual analysis.
-    try {
-      this.analyserL.connect(this.audioContext.destination);
-      this.analyserR.connect(this.audioContext.destination);
-    } catch (e) {
-      // ignore
-    }
+
+    // Master chain: analyserL/R → stereo merger → masterGain → compressor (limiter) → destination
+    // Analysers stay PRE-gain so visuals see the full unclipped signal.
+    this.merger = ctx.createChannelMerger(2);
+    this.masterGain = ctx.createGain();
+    this.masterGain.gain.setValueAtTime(0.7, ctx.currentTime);
+
+    this.compressor = ctx.createDynamicsCompressor();
+    // Hard-limiter settings
+    this.compressor.threshold.setValueAtTime(-1.0, ctx.currentTime); // dBFS
+    this.compressor.knee.setValueAtTime(0, ctx.currentTime);         // hard knee
+    this.compressor.ratio.setValueAtTime(20, ctx.currentTime);       // near-brickwall
+    this.compressor.attack.setValueAtTime(0.001, ctx.currentTime);
+    this.compressor.release.setValueAtTime(0.1, ctx.currentTime);
+
+    this.analyserL.connect(this.merger, 0, 0); // left  → merger ch0
+    this.analyserR.connect(this.merger, 0, 1); // right → merger ch1
+    this.merger.connect(this.masterGain);
+    this.masterGain.connect(this.compressor);
+    this.compressor.connect(ctx.destination);
   }
 
   /**
@@ -150,19 +167,15 @@ export class AudioEngine {
       );
 
     source.connect(this.streamNode);
-    // Always connect the source to the splitter (if present) so analysers see it.
+    // Always connect the source to the splitter so analysers (and the master
+    // gain/compressor chain beyond them) receive the signal.
     if (this.splitter) {
       source.connect(this.splitter);
-    }
-
-    // Only connect the stream node directly to the destination if we do not
-    // have analyser nodes that are already routing audio to the destination.
-    if (connectToDestination) {
-      if (!this.analyserL && !this.analyserR) {
-        this.streamNode.connect(this.audioContext.destination);
-      } else {
-        // Destination routing will occur via analyser nodes connected in _createAnalysers
-      }
+    } else if (connectToDestination && this.masterGain) {
+      // Analysers not ready — at least route through master gain → compressor
+      this.streamNode.connect(this.masterGain);
+    } else if (connectToDestination) {
+      this.streamNode.connect(this.audioContext.destination);
     }
   }
 
@@ -384,6 +397,9 @@ export class AudioEngine {
     this.analyserL = null;
     this.analyserR = null;
     this.splitter = null;
+    this.merger = null;
+    this.masterGain = null;
+    this.compressor = null;
 
     this.ringL.fill(0);
     this.ringR.fill(0);

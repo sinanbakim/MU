@@ -88,7 +88,7 @@ export class AudioVisualizer {
   private gui: GUI | null = null;
   private globalSampleIndex: number = 0;
   private _lastZMode: string = 'flow';
-  private mode: 'mic' | 'file' | 'midi' = 'mic';
+  private mode: 'mic' | 'file' = 'mic';
 
   // Keyboard synth overlay — independent of the current transport mode.
   // When true, keyboard keys trigger oscillator voices on top of whatever
@@ -99,6 +99,9 @@ export class AudioVisualizer {
   get isMidiActive(): boolean {
     return this.midiSynthEnabled;
   }
+
+  // Per-note phase accumulator for continuous Lissajous synthesis (avoids discontinuities between frames)
+  private _midiPhases: Map<number, { phaseL: number; phaseR: number }> = new Map();
   private animationId: number | null = null;
   private mouseDown: boolean = false;
   private uiHidden: boolean = false;
@@ -343,6 +346,10 @@ export class AudioVisualizer {
         if (this.midiSynthEnabled) {
           midiBtn.classList.add('active');
           this.updateStatus('MIDI Synth aktiv — Tasten: A W S E D F T G Y H X J K', true);
+          // Start render loop now so the canvas is ready before first keypress
+          if (this.animationId === null) {
+            this._draw();
+          }
         } else {
           midiBtn.classList.remove('active');
           // Release all held voices
@@ -838,24 +845,27 @@ export class AudioVisualizer {
     osc.frequency.value = freq;
     osc.connect(gain);
 
-    // Route through the analysers so the signal drives the Lissajous visuals.
-    // The analysers are already connected to ctx.destination in _createAnalysers(),
-    // so this also produces audible output.
+    // Route: gain → analyserL/R → merger → masterGain → compressor → destination
+    // Analysers are upstream of the master chain so visuals see the full signal
+    // while the compressor protects the output from clipping.
     if (this.audio.analyserL && this.audio.analyserR) {
       gain.connect(this.audio.analyserL);
       gain.connect(this.audio.analyserR);
+    } else if (this.audio.masterGain) {
+      // Analysers not ready yet, go directly to masterGain (still through compressor)
+      gain.connect(this.audio.masterGain);
     } else {
-      // Fallback: direct to destination if analysers somehow unavailable
       gain.connect(ctx.destination);
     }
 
     osc.start();
     this.keyboardVoices.set(midiNote, { osc, gain });
+    // Initialize phase accumulators for this note so Lissajous synthesis starts at 0
+    this._midiPhases.set(midiNote, { phaseL: 0, phaseR: Math.PI / 2 });
 
-    // Start render loop if not already running (e.g. no file loaded yet)
+    // Start render loop if not already running — do NOT reset ring buffer
+    // (would erase an already-running file visualization)
     if (this.animationId === null) {
-      this.render.resetRingbuffer();
-      this.globalSampleIndex = 0;
       this._draw();
     }
   }
@@ -873,6 +883,7 @@ export class AudioVisualizer {
       }, 120);
     } catch (_) {}
     this.keyboardVoices.delete(midiNote);
+    this._midiPhases.delete(midiNote);
   }
 
   private _draw(): void {
@@ -960,6 +971,60 @@ export class AudioVisualizer {
         localIndex++;
       }
       this.globalSampleIndex = localIndex;
+    }
+
+    // --- Keyboard synth Lissajous ---
+    // The WebAudio ring-buffer is only fed by the AudioWorklet (file/mic path).
+    // For the keyboard synth we synthesise time-domain samples here directly so
+    // the waveform drives the Lissajous without requiring a running file.
+    if (this.midiSynthEnabled && this.keyboardVoices.size > 0) {
+      const sr = this.audio.sampleRate;
+      // Use 512 samples per frame — roughly 11ms at 44.1kHz, enough for smooth motion
+      const N = 512;
+      const norm = this.keyboardVoices.size;
+
+      if (this.settings.zMode === 'flow') {
+        this.render.shiftZ(N * perSampleZ);
+      }
+
+      let localIndex = this.globalSampleIndex;
+      for (let i = 0; i < N; i++) {
+        let xSum = 0;
+        let ySum = 0;
+        const dt = 1 / sr;
+
+        for (const [midiNote] of this.keyboardVoices) {
+          const freq = 440 * Math.pow(2, (midiNote - 69) / 12);
+          const phaseInc = 2 * Math.PI * freq * dt;
+          const phases = this._midiPhases.get(midiNote) ?? { phaseL: 0, phaseR: Math.PI / 2 };
+          // Only advance phase on the last sample in the outer loop to keep it consistent
+          // (we advance below instead)
+          xSum += Math.sin(phases.phaseL + i * phaseInc);
+          ySum += Math.sin(phases.phaseR + i * phaseInc);
+        }
+
+        const x = (xSum / norm) * this.settings.amplitudeScale;
+        const y = (ySum / norm) * this.settings.amplitudeScale;
+        const z =
+          this.settings.zMode === 'flow'
+            ? -(N - 1 - i) * perSampleZ
+            : localIndex * perSampleZ;
+        this.render.writePoint(x, y, z, color[0], color[1], color[2]);
+        localIndex++;
+      }
+      this.globalSampleIndex = localIndex;
+
+      // Advance all phase accumulators by N samples so next frame continues smoothly
+      for (const [midiNote] of this.keyboardVoices) {
+        const freq = 440 * Math.pow(2, (midiNote - 69) / 12);
+        const phaseInc = 2 * Math.PI * freq * (N / sr);
+        const phases = this._midiPhases.get(midiNote) ?? { phaseL: 0, phaseR: Math.PI / 2 };
+        const TWO_PI = 2 * Math.PI;
+        this._midiPhases.set(midiNote, {
+          phaseL: (phases.phaseL + phaseInc) % TWO_PI,
+          phaseR: (phases.phaseR + phaseInc) % TWO_PI,
+        });
+      }
     }
 
     this.render.commitFrame();
